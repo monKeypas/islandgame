@@ -3,7 +3,7 @@
 <head>
   <title>Escape the Island</title>
   <style>
-    body { background: #1e6fa8; margin:0; overflow:auto; color:white; font-family: monospace; }
+    body { background: #567B9C; margin:0; overflow:auto; color:white; font-family: monospace; }
     canvas { display:block; margin:auto; }
     #hud { text-align:center; margin-top:40px; margin-bottom:50px; font-size:24px;}
     button {
@@ -46,13 +46,13 @@ const hud = document.getElementById("hud");
 
 // Colors
 const COLORS = {
-  ocean: "#1e6fa8",
-  floor: "#ffe9a1",
-  wall: "#d2b48c",
-  avatar: "#ffcc00",
-  chaser: "#aa0000",
-  shell: "#d199ff",
-  path: "#ffb4b4"
+  ocean: "#567B9C",
+  floor: "#F2EDDF",
+  wall: "#C2C0B6",
+  avatar: "#9DCCB1",
+  chaser: "#AB8F78",
+  shell: "#D8B8E3",
+  path: "#E3CAC3"
 };
 
 // Game state
@@ -63,21 +63,13 @@ let avatar = null;
 let chaser = null;
 let displayPath = false;
 let chaseCounter = 0;
-let speed = 20;
 
 // Difficulty → chaser speed
-const DIFFICULTY_SPEED = {
-  easy: 20,
-  normal: 14,
-  hard: 10,
-  nightmare: 7
-};
-
-const diff = sessionStorage.getItem("difficulty");
-if(diff && DIFFICULTY_SPEED[diff]){
-  speed = DIFFICULTY_SPEED[diff];
-}
-
+let diff = sessionStorage.getItem("difficulty") || "normal";
+let speed = 20;
+const DIFFICULTY_SPEED = { easy: 20, normal: 14, hard: 10, nightmare: 7 };
+function updateSpeed() { speed = DIFFICULTY_SPEED[diff] || 14; }
+updateSpeed();
 
 // Utilities
 function randInt(min,max){return Math.floor(Math.random()*(max-min))+min;}
@@ -249,7 +241,7 @@ function findPath(start,end){
   return [start];
 }
 
-// --- Rendering with visible textures ---
+// --- Rendering ---
 function render(){
   ctx.fillStyle = COLORS.ocean;
   ctx.fillRect(0,0,TOTAL_WIDTH,TOTAL_HEIGHT);
@@ -262,52 +254,33 @@ function render(){
       const px = x*TILE_SIZE;
       const py = (HUD_HEIGHT+HEIGHT-1-y)*TILE_SIZE;
 
-      let baseColor = COLORS.floor;
-      if(tile==="wall") baseColor = COLORS.wall;
-
-      ctx.fillStyle = baseColor;
-      ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
-
-      // Sand texture
-      if(tile==="floor"){
-        for(let i=0;i<12;i++){
-          ctx.fillStyle = "rgba(255,240,200,0.25)";
-          ctx.fillRect(px+Math.random()*TILE_SIZE, py+Math.random()*TILE_SIZE,2,2);
-        }
-      }
-
-      // Wet sand walls texture
-      if(tile==="wall"){
-        for(let i=0;i<6;i++){
-          ctx.fillStyle = "rgba(200,180,140,0.4)";
-          ctx.fillRect(px+Math.random()*TILE_SIZE, py+Math.random()*TILE_SIZE,2,2);
-        }
-      }
-
-      // Coins = shells
+      // Sand
+      if(tile==="floor"){ ctx.fillStyle = COLORS.floor; ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE); }
+      // Walls
+      if(tile==="wall"){ ctx.fillStyle = COLORS.wall; ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE); }
+      // Coins
       if(tile==="coin"){
+        ctx.fillStyle = COLORS.floor; ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+        ctx.fillStyle = '#D2A9D4';
+        ctx.beginPath(); ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/2.5,0,Math.PI*2); ctx.fill();
         ctx.fillStyle = COLORS.shell;
-        ctx.beginPath();
-        ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
       }
-
-      // Avatar = person
+      // Avatar
       if(tile==="avatar"){
-        ctx.fillStyle = baseColor;
-        ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
-        ctx.fillStyle = "#ffcc00";
-        ctx.beginPath();
-        ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = COLORS.floor; ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+        ctx.fillStyle = '#82B890';
+        ctx.beginPath(); ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/2.5,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = COLORS.avatar;
+        ctx.beginPath(); ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
       }
-
-      // Chaser = pirate
+      // Chaser
       if(tile==="chaser"){
-        ctx.fillStyle = baseColor;
-        ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
-        ctx.fillStyle = "#aa0000";
-        ctx.beginPath();
-        ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = COLORS.floor; ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+        ctx.fillStyle = '#96785F';
+        ctx.beginPath(); ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/2.5,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = COLORS.chaser;
+        ctx.beginPath(); ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
       }
     }
   }
@@ -317,11 +290,10 @@ function render(){
     const path = findPath(chaser, avatar);
     for(let i=1;i<path.length-1;i++){
       const p = path[i];
-      ctx.fillStyle = baseColor;
-      ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+      const px = p.x*TILE_SIZE;
+      const py = (HUD_HEIGHT+HEIGHT-1-p.y)*TILE_SIZE;
       ctx.fillStyle = COLORS.path;  
-      ctx.beginPath();
-      ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
     }
   }
 
@@ -343,8 +315,25 @@ function gameLoop(){
 
 // --- Save game ---
 function saveGame(){
-  const saveData = { world, coins, avatar, chaser, rooms, displayPath, chaseCounter };
+  const saveData = { world, coins, avatar, chaser, rooms, displayPath, chaseCounter, diff };
   localStorage.setItem("escape_save", JSON.stringify(saveData));
+}
+
+// --- Load saved game ---
+function loadSavedGame(){
+  const saved = localStorage.getItem("escape_save");
+  if(!saved) return false;
+  const data = JSON.parse(saved);
+  world = data.world;
+  coins = data.coins;
+  avatar = data.avatar;
+  chaser = data.chaser;
+  rooms = data.rooms;
+  displayPath = data.displayPath;
+  chaseCounter = data.chaseCounter ?? 0;
+  diff = data.diff || "normal";
+  updateSpeed();
+  return true;
 }
 
 // --- Input ---
@@ -361,14 +350,8 @@ document.getElementById("saveExitBtn").addEventListener("click", () => { saveGam
 const mode = sessionStorage.getItem("start_mode");
 sessionStorage.removeItem("start_mode");
 
-if(mode==="load"){
-  const saved = localStorage.getItem("escape_save");
-  if(saved){
-    const data = JSON.parse(saved);
-    world = data.world; coins = data.coins; avatar = data.avatar; chaser = data.chaser;
-    rooms = data.rooms; displayPath = data.displayPath; chaseCounter = data.chaseCounter ?? 0;
-  } else generateWorld();
-} else generateWorld();
+if(mode==="load"){ if(!loadSavedGame()) generateWorld(); } 
+else generateWorld();
 
 requestAnimationFrame(gameLoop);
 
