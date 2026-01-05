@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Escape the Island</title>
+  <style>
+    body { background: #1e6fa8; margin:0; overflow:auto; color:white; font-family: monospace; }
+    canvas { display:block; margin:auto; }
+    #hud { text-align:center; margin-top:40px; margin-bottom:50px; font-size:24px;}
+    button {
+      font-family: monospace;
+      font-size: 20px;
+      padding: 8px 16px;
+      margin: 0px 10px;
+      background: #222;
+      color: white;
+      border: 2px solid white;
+      cursor: pointer;
+    }
+    button:hover { background: #444; }
+  </style>
+</head>
+<body>
+
+<div id="hud"></div>
+
+<div style="text-align:center; margin-top:20px;">
+  <button id="exitBtn">Exit to Home</button>
+  <button id="saveExitBtn">Save & Exit</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const WIDTH = 80;
+const HEIGHT = 50;
+const HUD_HEIGHT = 2;
+const TILE_SIZE = 16;
+const TOTAL_WIDTH = WIDTH * TILE_SIZE;
+const TOTAL_HEIGHT = (HEIGHT + HUD_HEIGHT) * TILE_SIZE;
+
+const canvas = document.getElementById("gameCanvas");
+canvas.width = TOTAL_WIDTH;
+canvas.height = TOTAL_HEIGHT;
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+// Colors
+const COLORS = {
+  ocean: "#1e6fa8",
+  floor: "#ffe9a1",
+  wall: "#d2b48c",
+  avatar: "#ffcc00",
+  chaser: "#aa0000",
+  shell: "#d199ff",
+  path: "#ffb4b4"
+};
+
+// Game state
+let world = [];
+let rooms = [];
+let coins = [];
+let avatar = null;
+let chaser = null;
+let displayPath = false;
+let chaseCounter = 0;
+let speed = 20;
+
+// Difficulty → chaser speed
+const DIFFICULTY_SPEED = {
+  easy: 20,
+  normal: 14,
+  hard: 10,
+  nightmare: 7
+};
+
+const diff = sessionStorage.getItem("difficulty");
+if(diff && DIFFICULTY_SPEED[diff]){
+  speed = DIFFICULTY_SPEED[diff];
+}
+
+
+// Utilities
+function randInt(min,max){return Math.floor(Math.random()*(max-min))+min;}
+class Room{
+  constructor(p1,p2){this.p1=p1; this.p2=p2;}
+  x1(){return this.p1.x;} x2(){return this.p2.x;}
+  y1(){return this.p1.y;} y2(){return this.p2.y;}
+  getCenter(){return {x:Math.floor((this.x1()+this.x2())/2), y:Math.floor((this.y1()+this.y2())/2)};}
+}
+
+// --- World generation ---
+function generateWorld(){
+  world = [];
+  for(let x=0;x<WIDTH;x++){
+    world[x]=[];
+    for(let y=0;y<HEIGHT;y++) world[x][y]="nothing";
+  }
+
+  rooms = [];
+  let attempts = 0;
+  const numRooms = randInt(14,18);
+  while(rooms.length<numRooms && attempts<1000){
+    attempts++;
+    const x1=randInt(2,WIDTH-13);
+    const y1=randInt(2,HEIGHT-13);
+    const x2=x1+randInt(7,14);
+    const y2=y1+randInt(7,14);
+    const r=new Room({x:x1,y:y1},{x:x2,y:y2});
+    if(!rooms.some(rr=>overlap(rr,r))){
+      rooms.push(r);
+      drawRoom(r);
+    }
+  }
+
+  let roomList = [...rooms];
+  roomList.sort((a,b)=>a.getCenter().x-b.getCenter().x);
+  for(let i=0;i<roomList.length-1;i++) drawHallway(roomList[i].getCenter(),roomList[i+1].getCenter());
+  roomList.sort((a,b)=>a.getCenter().y-b.getCenter().y);
+  for(let i=0;i<roomList.length-1;i++) drawHallway(roomList[i].getCenter(),roomList[i+1].getCenter());
+
+  coins=[]; avatar=null; chaser=null;
+  generateAvatar(); generateChaser(); generateCoins();
+}
+
+// --- Room/Hallway drawing ---
+function drawRoom(r){
+  for(let x=r.x1();x<r.x2();x++){
+    for(let y=r.y1();y<r.y2();y++){
+      if(x===r.x1()||x===r.x2()-1||y===r.y1()||y===r.y2()-1) world[x][y]="wall";
+      else world[x][y]="floor";
+    }
+  }
+}
+
+function overlap(r1,r2){
+  return !(r1.x2()<r2.x1()||r1.x1()>r2.x2()||r1.y2()<r2.y1()||r1.y1()>r2.y2());
+}
+
+function drawHallway(p1,p2){
+  const turn = Math.random()<0.5?{x:p1.x,y:p2.y}:{x:p2.x,y:p1.y};
+  drawStraightHallway(p1,turn);
+  drawStraightHallway(turn,p2);
+}
+
+function drawStraightHallway(p1,p2){
+  if(p1.x===p2.x){
+    let yStart=Math.max(p1.y,p2.y), yEnd=Math.min(p1.y,p2.y);
+    for(let y=yStart;y>=yEnd;y--) setHallwayTile(p1.x,y);
+  } else if(p1.y===p2.y){
+    let xStart=Math.max(p1.x,p2.x), xEnd=Math.min(p1.x,p2.x);
+    for(let x=xStart;x>=xEnd;x--) setHallwayTile(x,p1.y);
+  }
+}
+
+function setHallwayTile(x,y){
+  world[x][y]="floor";
+  if(world[x+1]?.[y]==="nothing") world[x+1][y]="wall";
+  if(world[x-1]?.[y]==="nothing") world[x-1][y]="wall";
+  if(world[x]?.[y+1]==="nothing") world[x][y+1]="wall";
+  if(world[x]?.[y-1]==="nothing") world[x][y-1]="wall";
+}
+
+// --- Avatar / Chaser / Coins ---
+function generateAvatar(){
+  let x=0,y=0;
+  while(world[x][y]!=="floor"){x=randInt(3,WIDTH-14); y=randInt(3,HEIGHT-14);}
+  world[x][y]="avatar"; avatar={x,y};
+}
+function generateChaser(){
+  let x=0,y=0;
+  while(world[x][y]!=="floor"){x=randInt(3,WIDTH-14); y=randInt(3,HEIGHT-14);}
+  world[x][y]="chaser"; chaser={x,y};
+}
+function generateCoins(){
+  for(let i=0;i<20;i++){
+    let x=0,y=0;
+    while(world[x][y]!=="floor"){x=randInt(3,WIDTH-14); y=randInt(3,HEIGHT-14);}
+    world[x][y]="coin"; coins.push({x,y});
+  }
+}
+
+// --- Avatar movement ---
+function moveAvatar(dir){
+  let dx=0, dy=0;
+  if(dir==="w") dy=1;
+  if(dir==="s") dy=-1;
+  if(dir==="a") dx=-1;
+  if(dir==="d") dx=1;
+
+  const nx = avatar.x + dx;
+  const ny = avatar.y + dy;
+
+  if(world[nx]?.[ny] !== "wall"){
+    const coinIndex = coins.findIndex(c => c.x === nx && c.y === ny);
+    if(coinIndex !== -1) coins.splice(coinIndex,1);
+
+    world[avatar.x][avatar.y] = "floor";
+    avatar.x = nx; avatar.y = ny;
+    world[nx][ny] = "avatar";
+
+    render();
+
+    if(coins.length === 0){
+      setTimeout(()=>{ alert("You Escaped!"); generateWorld(); },10);
+    }
+  }
+}
+
+// --- Chaser pathfinding ---
+function moveChaser(){
+  const path = findPath(chaser, avatar);
+  if(path.length>1){
+    const next = path[1];
+    const currentOnCoin = coins.some(c=>c.x===chaser.x && c.y===chaser.y);
+    world[chaser.x][chaser.y] = currentOnCoin ? "coin" : "floor";
+    chaser.x=next.x; chaser.y=next.y;
+    world[chaser.x][chaser.y]="chaser";
+  }
+}
+
+// --- Simple A* ---
+function findPath(start,end){
+  const open=[{x:start.x,y:start.y,g:0,h:Math.abs(start.x-end.x)+Math.abs(start.y-end.y),parent:null}];
+  const closed=new Set();
+  const key=(p)=>`${p.x},${p.y}`;
+  while(open.length){
+    open.sort((a,b)=>a.g+a.h - (b.g+b.h));
+    const curr=open.shift();
+    if(curr.x===end.x && curr.y===end.y){
+      const path=[];
+      let node=curr;
+      while(node){path.unshift({x:node.x,y:node.y}); node=node.parent;}
+      return path;
+    }
+    closed.add(key(curr));
+    [[1,0],[0,1],[-1,0],[0,-1]].forEach(([dx,dy])=>{
+      const nx=curr.x+dx, ny=curr.y+dy;
+      if(nx<0||ny<0||nx>=WIDTH||ny>=HEIGHT) return;
+      const tile = world[nx][ny];
+      if(tile==="wall") return;
+      if(closed.has(`${nx},${ny}`)) return;
+      const g = curr.g+1;
+      const h = Math.abs(nx-end.x)+Math.abs(ny-end.y);
+      const exist = open.find(n=>n.x===nx && n.y===ny);
+      if(!exist) open.push({x:nx,y:ny,g,h,parent:curr});
+      else if(g<exist.g){exist.g=g; exist.parent=curr;}
+    });
+  }
+  return [start];
+}
+
+// --- Rendering with visible textures ---
+function render(){
+  ctx.fillStyle = COLORS.ocean;
+  ctx.fillRect(0,0,TOTAL_WIDTH,TOTAL_HEIGHT);
+
+  for(let x=0;x<WIDTH;x++){
+    for(let y=0;y<HEIGHT;y++){
+      const tile = world[x][y];
+      if(tile==="nothing") continue;
+
+      const px = x*TILE_SIZE;
+      const py = (HUD_HEIGHT+HEIGHT-1-y)*TILE_SIZE;
+
+      let baseColor = COLORS.floor;
+      if(tile==="wall") baseColor = COLORS.wall;
+
+      ctx.fillStyle = baseColor;
+      ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+
+      // Sand texture
+      if(tile==="floor"){
+        for(let i=0;i<12;i++){
+          ctx.fillStyle = "rgba(255,240,200,0.25)";
+          ctx.fillRect(px+Math.random()*TILE_SIZE, py+Math.random()*TILE_SIZE,2,2);
+        }
+      }
+
+      // Wet sand walls texture
+      if(tile==="wall"){
+        for(let i=0;i<6;i++){
+          ctx.fillStyle = "rgba(200,180,140,0.4)";
+          ctx.fillRect(px+Math.random()*TILE_SIZE, py+Math.random()*TILE_SIZE,2,2);
+        }
+      }
+
+      // Coins = shells
+      if(tile==="coin"){
+        ctx.fillStyle = COLORS.shell;
+        ctx.beginPath();
+        ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2);
+        ctx.fill();
+      }
+
+      // Avatar = person
+      if(tile==="avatar"){
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+        ctx.fillStyle = "#ffcc00";
+        ctx.beginPath();
+        ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
+      }
+
+      // Chaser = pirate
+      if(tile==="chaser"){
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+        ctx.fillStyle = "#aa0000";
+        ctx.beginPath();
+        ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
+  // Path visualization
+  if(displayPath){
+    const path = findPath(chaser, avatar);
+    for(let i=1;i<path.length-1;i++){
+      const p = path[i];
+      ctx.fillStyle = baseColor;
+      ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+      ctx.fillStyle = COLORS.path;  
+      ctx.beginPath();
+      ctx.arc(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/3,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  hud.textContent = `Escape the Island | Move: W/A/S/D | Toggle path: P | Shells left: ${coins.length}`;
+}
+
+// --- Game loop ---
+function gameLoop(){
+  chaseCounter++;
+  if(chaseCounter>=speed){ moveChaser(); chaseCounter=0; }
+
+  if(avatar.x===chaser.x && avatar.y===chaser.y){
+    setTimeout(()=>{ alert("You Were Caught!"); generateWorld(); }, 10);
+  }
+
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+// --- Save game ---
+function saveGame(){
+  const saveData = { world, coins, avatar, chaser, rooms, displayPath, chaseCounter };
+  localStorage.setItem("escape_save", JSON.stringify(saveData));
+}
+
+// --- Input ---
+document.addEventListener("keydown",e=>{
+  const key=e.key.toLowerCase();
+  if(["w","a","s","d"].includes(key)) moveAvatar(key);
+  if(key==="p") displayPath=!displayPath;
+});
+
+document.getElementById("exitBtn").addEventListener("click", () => { window.location.href="index.html"; });
+document.getElementById("saveExitBtn").addEventListener("click", () => { saveGame(); window.location.href="index.html"; });
+
+// --- Start ---
+const mode = sessionStorage.getItem("start_mode");
+sessionStorage.removeItem("start_mode");
+
+if(mode==="load"){
+  const saved = localStorage.getItem("escape_save");
+  if(saved){
+    const data = JSON.parse(saved);
+    world = data.world; coins = data.coins; avatar = data.avatar; chaser = data.chaser;
+    rooms = data.rooms; displayPath = data.displayPath; chaseCounter = data.chaseCounter ?? 0;
+  } else generateWorld();
+} else generateWorld();
+
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
